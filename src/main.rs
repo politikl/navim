@@ -509,16 +509,140 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
     }
 }
 
+fn show_about() -> Result<(), Box<dyn Error>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    loop {
+        terminal.draw(|f| {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(8),
+                    Constraint::Min(0),
+                    Constraint::Length(3),
+                ])
+                .split(f.area());
+
+            // ASCII Art Header
+            let ascii_art = vec![
+                Line::from(Span::styled("", Style::default())),
+                Line::from(Span::styled(
+                    "  ___  ___  __ _ _ __ ___| |__  ",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    " / __|/ _ \\/ _` | '__/ __| '_ \\ ",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    " \\__ \\  __/ (_| | | | (__| | | |",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    " |___/\\___|\\__,_|_|  \\___|_| |_|",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled("", Style::default())),
+            ];
+            let header = Paragraph::new(ascii_art)
+                .block(Block::default().borders(Borders::ALL).title("Search"));
+            f.render_widget(header, chunks[0]);
+
+            // About content
+            let about_content = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Terminal Web Browser",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    "  Version 1.0.0",
+                    Style::default().fg(Color::Gray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  A vim-style terminal browser for searching and reading the web.",
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+                Line::from(Span::styled("  FEATURES", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  - Vim-style navigation (hjkl, i for insert, Esc for normal)", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  - In-terminal web page rendering", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  - Privacy-focused with Brave Search backend", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  - No tracking, no cookies, no JavaScript", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  - Lightweight and fast (built in Rust)", Style::default().fg(Color::White))),
+                Line::from(""),
+                Line::from(Span::styled("  WHY SEARCH?", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Modern browsers are bloated, track everything you do, and pull", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  you out of your terminal workflow. Search lets you find and read", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  information without leaving the command line.", Style::default().fg(Color::White))),
+                Line::from(""),
+                Line::from(Span::styled("  KEYBINDINGS", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  i          Enter insert/browse mode", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  Esc        Return to normal mode", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  j/k        Navigate down/up", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  J/K        Scroll 10 lines (in page view)", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  g/G        Jump to top/bottom", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  Enter      Open selected result", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  q          Quit / Go back", Style::default().fg(Color::White))),
+                Line::from(""),
+                Line::from(Span::styled("  TECHNICAL", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  Built with: Rust, ratatui, reqwest, scraper, html2text", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  Source: github.com/politikl/search", Style::default().fg(Color::Cyan))),
+                Line::from(""),
+                Line::from(Span::styled("  LICENSE", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  MIT License - Free and open source", Style::default().fg(Color::White))),
+                Line::from(""),
+            ];
+            let about = Paragraph::new(about_content)
+                .block(Block::default().borders(Borders::ALL).title("About"))
+                .wrap(Wrap { trim: false });
+            f.render_widget(about, chunks[1]);
+
+            // Footer
+            let footer = Paragraph::new(" Press [q] or [Esc] to exit ")
+                .style(Style::default().fg(Color::Gray))
+                .block(Block::default().borders(Borders::ALL));
+            f.render_widget(footer, chunks[2]);
+        })?;
+
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+                match code {
+                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         eprintln!("Usage: search <query>");
+        eprintln!("       search about    - Show about information");
         eprintln!("Example: search rust programming");
         std::process::exit(1);
     }
 
     let query = args[1..].join(" ");
+
+    // Check for about command
+    if query.to_lowercase() == "about" {
+        return show_about();
+    }
 
     println!("Searching for: {}...", query);
 

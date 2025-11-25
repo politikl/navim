@@ -1,7 +1,11 @@
 [package]
 name = "search"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+description = "A vim-style terminal web browser"
+authors = ["politikl"]
+repository = "https://github.com/politikl/search"
+license = "MIT"
 
 [dependencies]
 reqwest = { version = "0.11", features = ["blocking"] }
