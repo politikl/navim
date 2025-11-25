@@ -1,40 +1,26 @@
-# Search - Anonymous Terminal Search Tool
+# Ghost Browse - Terminal Web Browser
 
-**Search the web anonymously directly from your terminal.** No accounts, no tracking, no browser needed.
+**A full terminal-based web browser with vim-style navigation.** Search the web and view pages without leaving your terminal.
 
-This command-line tool lets you perform web searches from anywhere in your terminal while maintaining your privacy through DuckDuckGo's anonymous search interface.
+## Features
 
-## Why?
-
-The point of this project is simple: **search in your terminal anonymously**. No need to open a browser, no cookies tracking you, no search history stored. Just pure, fast, private search results delivered straight to your command line.
+- **Vim-style Navigation**: Use `i` for insert mode, `hjkl` to navigate, `Esc` for normal mode
+- **In-Terminal Web Viewing**: Render web pages as text directly in the terminal
+- **TUI Interface**: Beautiful terminal UI powered by ratatui
+- **Fast**: Built in Rust for speed
+- **Privacy-Focused**: Uses Brave Search, no tracking
 
 ## Installation
 
-### Quick Install
-
 ```bash
+git clone https://github.com/politikl/search.git
+cd search
 cargo install --path .
 ```
 
-### Manual Install
-
-1. Clone this repository:
-```bash
-git clone https://github.com/YOUR_USERNAME/search.git
-cd search
-```
-
-2. Build and install:
-```bash
-cargo build --release
-cp target/release/search ~/.cargo/bin/
-```
-
-3. Make sure `~/.cargo/bin` is in your PATH
+Make sure `~/.cargo/bin` is in your PATH.
 
 ## Usage
-
-Simply type `search` followed by your query:
 
 ```bash
 search rust programming
@@ -42,55 +28,52 @@ search how to cook pasta
 search best laptop 2024
 ```
 
-## Features
+## Keybindings
 
-- **Anonymous**: All searches go through DuckDuckGo's HTML interface
-- **No Account Required**: Start searching immediately
-- **Fast**: Built in Rust for speed
-- **Privacy-Focused**: No tracking, no logging, no cookies
-- **Use Anywhere**: Works from any directory in your terminal
+### Search Results View
 
-## Examples
+| Mode | Key | Action |
+|------|-----|--------|
+| NORMAL | `i` | Enter INSERT mode |
+| NORMAL | `q` | Quit |
+| INSERT | `j` / `k` | Navigate down/up |
+| INSERT | `h` / `l` | Navigate up/down |
+| INSERT | `Enter` | Open page in terminal |
+| INSERT | `Esc` | Return to NORMAL mode |
 
-```bash
-# Search for programming topics
-search python tutorial
+### Web Page View
 
-# Search for general information
-search weather forecast
-
-# Search for news
-search latest tech news
-
-# Multi-word queries
-search machine learning algorithms
-```
+| Mode | Key | Action |
+|------|-----|--------|
+| NORMAL | `i` | Enter BROWSE mode |
+| NORMAL | `q` / `Esc` | Back to search results |
+| BROWSE | `j` / `k` | Scroll down/up 1 line |
+| BROWSE | `J` / `K` | Scroll down/up 10 lines |
+| BROWSE | `d` / `u` | Scroll down/up 10 lines |
+| BROWSE | `g` | Go to top |
+| BROWSE | `G` | Go to bottom |
+| BROWSE | `q` | Back to search results |
 
 ## How It Works
 
-- Uses DuckDuckGo's HTML search interface (no JavaScript tracking)
-- Sends requests with a generic user agent for anonymity
-- Parses and displays the top 10 results
-- No data is stored locally
-
-## Uninstall
-
-To remove the search command:
-
-```bash
-rm ~/.cargo/bin/search
-```
-
-## Privacy
-
-- No search history saved
-- No cookies or session data
-- No user tracking
-- Anonymous requests to DuckDuckGo
+1. Search queries are sent to Brave Search
+2. Results are displayed in a TUI list
+3. Select a result and press Enter to view the page
+4. Web pages are converted to plain text using html2text
+5. Navigate the page with vim-style keybindings
+6. Press `q` to return to search results
 
 ## Technical Details
 
 - Built with Rust
-- Uses `reqwest` for HTTP requests
-- Uses `scraper` for HTML parsing
-- Colorized terminal output with `colored`
+- `reqwest` - HTTP requests
+- `scraper` - HTML parsing for search results
+- `html2text` - Convert web pages to terminal text
+- `ratatui` - Terminal UI framework
+- `crossterm` - Terminal manipulation
+
+## Uninstall
+
+```bash
+cargo uninstall search
+```
