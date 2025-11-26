@@ -1,8 +1,8 @@
-# Search - Terminal Web Browser
+# Navim - Terminal Web Browser
 
 **A full terminal-based web browser with vim-style navigation.** Search the web and view pages without ever leaving your terminal.
 
-## Why Search?
+## Why Navim?
 
 ### The Problem with Modern Browsing
 
@@ -18,21 +18,21 @@ As developers, sysadmins, and power users, we spend most of our time in the term
 
 ### The Solution
 
-Search brings web browsing directly into your terminal with a clean, keyboard-driven interface inspired by vim. No mouse needed. No distractions. No tracking. Just you, your query, and the information you need.
+Navim brings web browsing directly into your terminal with a clean, keyboard-driven interface inspired by vim. No mouse needed. No distractions. No tracking. Just you, your query, and the information you need.
 
 ## Features
 
 ### Vim-Style Navigation
-If you know vim, you already know how to use Search. Press `i` to enter insert mode, navigate with `hjkl`, and `Esc` to return to normal mode. The learning curve is zero for anyone familiar with modal editing.
+If you know vim, you already know how to use Navim. Press `i` to enter insert mode, navigate with `hjkl`, and `Esc` to return to normal mode. The learning curve is zero for anyone familiar with modal editing.
 
 ### In-Terminal Web Rendering
-Don't just see search results - actually read the web pages. Search converts HTML to clean, readable text rendered directly in your terminal. Articles, documentation, Stack Overflow answers - all readable without opening a browser.
+Don't just see search results - actually read the web pages. Navim converts HTML to clean, readable text rendered directly in your terminal. Articles, documentation, Stack Overflow answers - all readable without opening a browser.
 
 ### Privacy by Design
-Search uses Brave Search as its backend, which doesn't track your searches or build advertising profiles. Combined with the fact that you're not loading JavaScript, images, or third-party trackers, your searches remain truly private.
+Navim uses Brave Search as its backend, which doesn't track your searches or build advertising profiles. Combined with the fact that you're not loading JavaScript, images, or third-party trackers, your searches remain truly private.
 
 ### Lightweight and Fast
-Built in Rust for maximum performance. Search launches instantly, fetches results quickly, and uses minimal system resources. No Electron, no WebKit, no bloat.
+Built in Rust for maximum performance. Navim launches instantly, fetches results quickly, and uses minimal system resources. No Electron, no WebKit, no bloat.
 
 ### Distraction-Free
 No ads. No suggested videos. No "people also searched for" rabbit holes. Just the information you asked for, presented cleanly in your terminal.
@@ -43,12 +43,12 @@ No ads. No suggested videos. No "people also searched for" rabbit holes. Just th
 
 **macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/politikl/search/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/politikl/navim/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/politikl/search/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/politikl/navim/main/install.ps1 | iex
 ```
 
 After installation, add to your PATH:
@@ -68,8 +68,8 @@ export PATH="$HOME/.local/bin:$PATH"
 If you have Rust installed, you can build from source:
 
 ```bash
-git clone https://github.com/politikl/search.git
-cd search
+git clone https://github.com/politikl/navim.git
+cd navim
 cargo install --path .
 ```
 
@@ -81,13 +81,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 ## Usage
 
-Simply run `search` followed by your query:
+Simply run `navim` followed by your query:
 
 ```bash
-search rust programming
-search how to exit vim
-search kubernetes pod restart policy
-search best practices for API design
+navim rust programming
+navim how to exit vim
+navim kubernetes pod restart policy
+navim best practices for API design
 ```
 
 The TUI will launch showing your search results. Navigate, select, and read - all without leaving your terminal.
@@ -95,15 +95,15 @@ The TUI will launch showing your search results. Navigate, select, and read - al
 ### Special Commands
 
 ```bash
-search about  # Show about information
-search -h     # View your browsing history
+navim about  # Show about information
+navim -h     # View your browsing history
 ```
 
 The `-h` flag shows all pages you've visited along with the search query that led you there and when you visited.
 
 ## Keybindings
 
-Search uses a modal interface inspired by vim. There are two main views: Search Results and Web Page, each with Normal and Insert/Browse modes.
+Navim uses a modal interface inspired by vim. There are two main views: Search Results and Web Page, each with Normal and Insert/Browse modes.
 
 ### Search Results View
 
@@ -168,7 +168,7 @@ All of this happens without executing JavaScript, loading tracking pixels, or st
 
 ## Technical Details
 
-Search is built with a carefully selected stack of Rust crates:
+Navim is built with a carefully selected stack of Rust crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -191,25 +191,25 @@ The architecture separates concerns cleanly:
 - **No Forms**: You cannot submit forms or log into websites
 - **No CSS Styling**: Pages are rendered as plain text without visual styling
 
-These limitations are by design. Search is meant for quickly finding and reading information, not for interactive web applications.
+These limitations are by design. Navim is meant for quickly finding and reading information, not for interactive web applications.
 
 ## Uninstall
 
 **If installed via quick install:**
 ```bash
-rm ~/.local/bin/search
+rm ~/.local/bin/navim
 ```
 
 **If installed via cargo:**
 ```bash
-cargo uninstall search
+cargo uninstall navim
 # or
-rm ~/.cargo/bin/search
+rm ~/.cargo/bin/navim
 ```
 
 **Windows:**
 ```powershell
-Remove-Item $env:USERPROFILE\.local\bin\search.exe
+Remove-Item $env:USERPROFILE\.local\bin\navim.exe
 ```
 
 ## Contributing
