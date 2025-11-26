@@ -51,7 +51,7 @@ struct HistoryEntry {
 fn get_history_path() -> PathBuf {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("search");
+        .join("navim");
     fs::create_dir_all(&config_dir).ok();
     config_dir.join("history.json")
 }
@@ -590,25 +590,29 @@ fn show_about() -> Result<(), Box<dyn Error>> {
             let ascii_art = vec![
                 Line::from(Span::styled("", Style::default())),
                 Line::from(Span::styled(
-                    "  ___  ___  __ _ _ __ ___| |__  ",
+                    "                    _            ",
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    " / __|/ _ \\/ _` | '__/ __| '_ \\ ",
+                    "  _ __   __ ___   _(_)_ __ ___   ",
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    " \\__ \\  __/ (_| | | | (__| | | |",
+                    " | '_ \\ / _` \\ \\ / / | '_ ` _ \\  ",
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    " |___/\\___|\\__,_|_|  \\___|_| |_|",
+                    " | | | | (_| |\\ V /| | | | | | | ",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    " |_| |_|\\__,_| \\_/ |_|_| |_| |_| ",
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled("", Style::default())),
             ];
             let header = Paragraph::new(ascii_art)
-                .block(Block::default().borders(Borders::ALL).title("Search"));
+                .block(Block::default().borders(Borders::ALL).title("Navim"));
             f.render_widget(header, chunks[0]);
 
             // About content
@@ -635,9 +639,9 @@ fn show_about() -> Result<(), Box<dyn Error>> {
                 Line::from(Span::styled("  - No tracking, no cookies, no JavaScript", Style::default().fg(Color::White))),
                 Line::from(Span::styled("  - Lightweight and fast (built in Rust)", Style::default().fg(Color::White))),
                 Line::from(""),
-                Line::from(Span::styled("  WHY SEARCH?", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  WHY NAVIM?", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Modern browsers are bloated, track everything you do, and pull", Style::default().fg(Color::White))),
-                Line::from(Span::styled("  you out of your terminal workflow. Search lets you find and read", Style::default().fg(Color::White))),
+                Line::from(Span::styled("  you out of your terminal workflow. Navim lets you find and read", Style::default().fg(Color::White))),
                 Line::from(Span::styled("  information without leaving the command line.", Style::default().fg(Color::White))),
                 Line::from(""),
                 Line::from(Span::styled("  KEYBINDINGS", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
@@ -651,7 +655,7 @@ fn show_about() -> Result<(), Box<dyn Error>> {
                 Line::from(""),
                 Line::from(Span::styled("  TECHNICAL", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  Built with: Rust, ratatui, reqwest, scraper, html2text", Style::default().fg(Color::White))),
-                Line::from(Span::styled("  Source: github.com/politikl/search", Style::default().fg(Color::Cyan))),
+                Line::from(Span::styled("  Source: github.com/politikl/navim", Style::default().fg(Color::Cyan))),
                 Line::from(""),
                 Line::from(Span::styled("  LICENSE", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled("  MIT License - Free and open source", Style::default().fg(Color::White))),
@@ -833,10 +837,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: search <query>");
-        eprintln!("       search about  - Show about information");
-        eprintln!("       search -h     - Show browsing history");
-        eprintln!("Example: search rust programming");
+        eprintln!("Usage: navim <query>");
+        eprintln!("       navim about  - Show about information");
+        eprintln!("       navim -h     - Show browsing history");
+        eprintln!("Example: navim rust programming");
         std::process::exit(1);
     }
 
