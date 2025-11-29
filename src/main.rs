@@ -218,6 +218,9 @@ struct App {
     // Link navigation
     page_links: Vec<PageLink>,
     selected_link: Option<usize>,
+    // Cursor position in web page (line, column)
+    cursor_line: usize,
+    cursor_col: usize,
     // Home screen
     search_input: String,
     cursor_position: usize,
@@ -241,6 +244,8 @@ impl App {
             page_url: String::new(),
             page_links: Vec::new(),
             selected_link: None,
+            cursor_line: 0,
+            cursor_col: 0,
             search_input: String::new(),
             cursor_position: 0,
         }
@@ -259,6 +264,8 @@ impl App {
             page_url: String::new(),
             page_links: Vec::new(),
             selected_link: None,
+            cursor_line: 0,
+            cursor_col: 0,
             search_input: String::new(),
             cursor_position: 0,
         }
@@ -354,75 +361,211 @@ impl App {
         self.page_scroll = 0;
         self.page_links.clear();
         self.selected_link = None;
+        self.cursor_line = 0;
+        self.cursor_col = 0;
     }
 
+    // Move cursor right by one character
+    fn cursor_right(&mut self) {
+        if let Some(line) = self.page_content.get(self.cursor_line) {
+            if self.cursor_col < line.chars().count() {
+                self.cursor_col += 1;
+            } else if self.cursor_line < self.page_content.len() - 1 {
+                // Move to start of next line
+                self.cursor_line += 1;
+                self.cursor_col = 0;
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Move cursor left by one character
+    fn cursor_left(&mut self) {
+        if self.cursor_col > 0 {
+            self.cursor_col -= 1;
+        } else if self.cursor_line > 0 {
+            // Move to end of previous line
+            self.cursor_line -= 1;
+            if let Some(line) = self.page_content.get(self.cursor_line) {
+                self.cursor_col = line.chars().count();
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Move cursor down one line
+    fn cursor_down(&mut self) {
+        if self.cursor_line < self.page_content.len().saturating_sub(1) {
+            self.cursor_line += 1;
+            // Clamp column to line length
+            if let Some(line) = self.page_content.get(self.cursor_line) {
+                self.cursor_col = self.cursor_col.min(line.chars().count());
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Move cursor up one line
+    fn cursor_up(&mut self) {
+        if self.cursor_line > 0 {
+            self.cursor_line -= 1;
+            // Clamp column to line length
+            if let Some(line) = self.page_content.get(self.cursor_line) {
+                self.cursor_col = self.cursor_col.min(line.chars().count());
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Move cursor to next word
+    fn cursor_next_word(&mut self) {
+        if let Some(line) = self.page_content.get(self.cursor_line) {
+            let chars: Vec<char> = line.chars().collect();
+            let mut col = self.cursor_col;
+
+            // Skip current word (non-whitespace)
+            while col < chars.len() && !chars[col].is_whitespace() {
+                col += 1;
+            }
+            // Skip whitespace
+            while col < chars.len() && chars[col].is_whitespace() {
+                col += 1;
+            }
+
+            if col < chars.len() {
+                self.cursor_col = col;
+            } else if self.cursor_line < self.page_content.len() - 1 {
+                // Move to next line
+                self.cursor_line += 1;
+                self.cursor_col = 0;
+                // Skip leading whitespace on new line
+                if let Some(next_line) = self.page_content.get(self.cursor_line) {
+                    let next_chars: Vec<char> = next_line.chars().collect();
+                    let mut new_col = 0;
+                    while new_col < next_chars.len() && next_chars[new_col].is_whitespace() {
+                        new_col += 1;
+                    }
+                    self.cursor_col = new_col;
+                }
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Move cursor to previous word
+    fn cursor_prev_word(&mut self) {
+        if let Some(line) = self.page_content.get(self.cursor_line) {
+            let chars: Vec<char> = line.chars().collect();
+            let mut col = self.cursor_col;
+
+            // Move back one if at word start
+            if col > 0 {
+                col -= 1;
+            }
+
+            // Skip whitespace backwards
+            while col > 0 && chars.get(col).map_or(false, |c| c.is_whitespace()) {
+                col -= 1;
+            }
+            // Skip word backwards
+            while col > 0 && chars.get(col - 1).map_or(false, |c| !c.is_whitespace()) {
+                col -= 1;
+            }
+
+            if col > 0 || self.cursor_col > 0 {
+                self.cursor_col = col;
+            } else if self.cursor_line > 0 {
+                // Move to previous line
+                self.cursor_line -= 1;
+                if let Some(prev_line) = self.page_content.get(self.cursor_line) {
+                    self.cursor_col = prev_line.chars().count();
+                }
+            }
+        }
+        self.update_selected_link();
+        self.ensure_cursor_visible();
+    }
+
+    // Jump to next link (capital L)
     fn next_link(&mut self) {
         if self.page_links.is_empty() {
             return;
         }
-        match self.selected_link {
-            Some(i) => {
-                if i < self.page_links.len() - 1 {
-                    self.selected_link = Some(i + 1);
-                } else {
-                    self.selected_link = Some(0); // Wrap to first
-                }
-            }
-            None => {
-                // Find first link at or after current scroll position
-                let first_visible = self.page_links.iter().position(|l| l.line >= self.page_scroll);
-                self.selected_link = first_visible.or(Some(0));
-            }
-        }
-        // Scroll to make selected link visible
-        if let Some(idx) = self.selected_link {
-            if let Some(link) = self.page_links.get(idx) {
-                if link.line < self.page_scroll {
-                    self.page_scroll = link.line;
-                } else if link.line >= self.page_scroll + 20 {
-                    self.page_scroll = link.line.saturating_sub(5);
-                }
-            }
+
+        // Find next link after current cursor position
+        let next = self.page_links.iter().position(|link| {
+            link.line > self.cursor_line ||
+            (link.line == self.cursor_line && link.col_start > self.cursor_col)
+        });
+
+        if let Some(idx) = next {
+            self.jump_to_link(idx);
+        } else {
+            // Wrap to first link
+            self.jump_to_link(0);
         }
     }
 
+    // Jump to previous link (capital H or B)
     fn prev_link(&mut self) {
         if self.page_links.is_empty() {
             return;
         }
-        match self.selected_link {
-            Some(i) => {
-                if i > 0 {
-                    self.selected_link = Some(i - 1);
-                } else {
-                    self.selected_link = Some(self.page_links.len() - 1); // Wrap to last
-                }
-            }
-            None => {
-                // Find last link before current scroll position
-                let last_before = self.page_links.iter().rposition(|l| l.line <= self.page_scroll + 20);
-                self.selected_link = last_before.or(Some(self.page_links.len() - 1));
-            }
-        }
-        // Scroll to make selected link visible
-        if let Some(idx) = self.selected_link {
-            if let Some(link) = self.page_links.get(idx) {
-                if link.line < self.page_scroll {
-                    self.page_scroll = link.line;
-                } else if link.line >= self.page_scroll + 20 {
-                    self.page_scroll = link.line.saturating_sub(5);
-                }
-            }
+
+        // Find previous link before current cursor position
+        let prev = self.page_links.iter().rposition(|link| {
+            link.line < self.cursor_line ||
+            (link.line == self.cursor_line && link.col_start < self.cursor_col)
+        });
+
+        if let Some(idx) = prev {
+            self.jump_to_link(idx);
+        } else {
+            // Wrap to last link
+            self.jump_to_link(self.page_links.len() - 1);
         }
     }
 
-    fn follow_link(&mut self) -> Option<String> {
+    fn jump_to_link(&mut self, idx: usize) {
+        if let Some(link) = self.page_links.get(idx) {
+            self.cursor_line = link.line;
+            self.cursor_col = link.col_start;
+            self.selected_link = Some(idx);
+            self.ensure_cursor_visible();
+        }
+    }
+
+    // Update selected_link based on cursor position
+    fn update_selected_link(&mut self) {
+        self.selected_link = self.page_links.iter().position(|link| {
+            link.line == self.cursor_line &&
+            self.cursor_col >= link.col_start &&
+            self.cursor_col <= link.col_end
+        });
+    }
+
+    // Check if cursor is on a link and return its URL
+    fn get_link_at_cursor(&self) -> Option<(String, String)> {
         if let Some(idx) = self.selected_link {
             if let Some(link) = self.page_links.get(idx) {
-                return Some(link.url.clone());
+                return Some((link.url.clone(), link.text.clone()));
             }
         }
         None
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        // Scroll to keep cursor visible (assuming ~20 visible lines)
+        if self.cursor_line < self.page_scroll {
+            self.page_scroll = self.cursor_line;
+        } else if self.cursor_line >= self.page_scroll + 20 {
+            self.page_scroll = self.cursor_line.saturating_sub(19);
+        }
     }
 
     fn load_page(&mut self, url: &str, title: &str) {
@@ -430,6 +573,8 @@ impl App {
         self.page_url = url.to_string();
         self.page_scroll = 0;
         self.selected_link = None;
+        self.cursor_line = 0;
+        self.cursor_col = 0;
 
         match fetch_page(url) {
             Ok((content, links)) => {
@@ -1113,9 +1258,12 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     // Page content with link highlighting
     let visible_height = chunks[1].height.saturating_sub(2) as usize;
 
-    // Find which link is selected and on which line
-    let selected_link_line = app.selected_link.and_then(|idx| app.page_links.get(idx).map(|l| l.line));
+    // Get the selected link info for highlighting
+    let selected_link_info = app.selected_link.and_then(|idx| {
+        app.page_links.get(idx).map(|l| (l.line, l.col_start, l.col_end))
+    });
 
+    // Build content with proper highlighting
     let content_lines: Vec<Line> = app
         .page_content
         .iter()
@@ -1123,23 +1271,71 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
         .skip(app.page_scroll)
         .take(visible_height)
         .map(|(line_num, line_text)| {
-            // Check if this line has the selected link
-            if Some(line_num) == selected_link_line {
-                // Highlight the entire line containing the selected link
-                Line::from(Span::styled(
-                    line_text.as_str(),
-                    Style::default().bg(Color::Blue).fg(Color::White),
-                ))
-            } else {
+            // Get all links on this line
+            let links_on_line: Vec<&PageLink> = app.page_links.iter()
+                .filter(|l| l.line == line_num)
+                .collect();
+
+            if links_on_line.is_empty() {
+                // No links on this line - render plain
                 Line::from(Span::raw(line_text.as_str()))
+            } else {
+                // Build spans with link highlighting
+                let chars: Vec<char> = line_text.chars().collect();
+                let mut spans: Vec<Span> = Vec::new();
+                let mut pos = 0;
+
+                for link in &links_on_line {
+                    // Add text before this link
+                    if pos < link.col_start && link.col_start <= chars.len() {
+                        let before: String = chars[pos..link.col_start].iter().collect();
+                        spans.push(Span::raw(before));
+                    }
+
+                    // Add the link text with highlighting
+                    let link_end = link.col_end.min(chars.len());
+                    let link_start = link.col_start.min(chars.len());
+                    if link_start < link_end {
+                        let link_text: String = chars[link_start..link_end].iter().collect();
+
+                        // Check if this is the selected link (cursor is on it)
+                        let is_selected = selected_link_info.map_or(false, |(sel_line, sel_start, sel_end)| {
+                            line_num == sel_line && link.col_start == sel_start && link.col_end == sel_end
+                        });
+
+                        if is_selected {
+                            // Selected link - orange/yellow background
+                            spans.push(Span::styled(
+                                link_text,
+                                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD),
+                            ));
+                        } else {
+                            // Regular link - blue
+                            spans.push(Span::styled(
+                                link_text,
+                                Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
+                            ));
+                        }
+                    }
+                    pos = link_end;
+                }
+
+                // Add remaining text after last link
+                if pos < chars.len() {
+                    let after: String = chars[pos..].iter().collect();
+                    spans.push(Span::raw(after));
+                }
+
+                Line::from(spans)
             }
         })
         .collect();
 
     let scroll_info = format!(
-        " Line {}/{} ",
-        app.page_scroll + 1,
-        app.page_content.len().max(1)
+        " Line {}/{} Col {} ",
+        app.cursor_line + 1,
+        app.page_content.len().max(1),
+        app.cursor_col
     );
 
     let page = Paragraph::new(content_lines)
@@ -1150,12 +1346,12 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     // Footer - show selected link URL or navigation help
     let footer_text = if let Some(idx) = app.selected_link {
         if let Some(link) = app.page_links.get(idx) {
-            format!(" Link {}/{}: {} ", idx + 1, app.page_links.len(), truncate_string(&link.url, 50))
+            format!(" ON LINK: {} [Enter to follow] ", truncate_string(&link.url, 50))
         } else {
-            " w/b: Next/Prev link  Enter: Follow  j/k: Scroll  q: Back ".to_string()
+            " h/l: ←/→  j/k: ↑/↓  w/b: word  L/H: links  Enter: follow  q: back ".to_string()
         }
     } else {
-        " w/b: Next/Prev link  j/k: Scroll  Space: Page Down  q: Back ".to_string()
+        " h/l: ←/→  j/k: ↑/↓  w/b: word  L/H: links  q: back ".to_string()
     };
 
     let footer = Paragraph::new(footer_text)
@@ -1353,42 +1549,66 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
                         }
                         _ => {}
                     },
-                    // Web Page - scrolling and link navigation
+                    // Web Page - vim-style cursor navigation
                     View::WebPage => match code {
-                        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => {
+                        KeyCode::Char('q') | KeyCode::Esc => {
                             app.back_to_results();
                         }
+                        // Cursor movement - h/l for character, j/k for line
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            app.cursor_left();
+                        }
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            app.cursor_right();
+                        }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            app.scroll_down(1);
+                            app.cursor_down();
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            app.scroll_up(1);
+                            app.cursor_up();
                         }
+                        // Word movement - w/b
+                        KeyCode::Char('w') => {
+                            app.cursor_next_word();
+                        }
+                        KeyCode::Char('b') => {
+                            app.cursor_prev_word();
+                        }
+                        // Link jumping - L/H (capital)
+                        KeyCode::Char('L') | KeyCode::Tab => {
+                            app.next_link();
+                        }
+                        KeyCode::Char('H') | KeyCode::BackTab => {
+                            app.prev_link();
+                        }
+                        // Page scrolling
                         KeyCode::Char(' ') | KeyCode::Char('d') | KeyCode::PageDown => {
-                            app.scroll_down(20);
+                            app.page_scroll = app.page_scroll.saturating_add(20);
+                            app.cursor_line = app.page_scroll;
+                            app.cursor_col = 0;
+                            app.update_selected_link();
                         }
                         KeyCode::Char('u') | KeyCode::PageUp => {
-                            app.scroll_up(20);
+                            app.page_scroll = app.page_scroll.saturating_sub(20);
+                            app.cursor_line = app.page_scroll;
+                            app.cursor_col = 0;
+                            app.update_selected_link();
                         }
                         KeyCode::Char('g') | KeyCode::Home => {
                             app.page_scroll = 0;
+                            app.cursor_line = 0;
+                            app.cursor_col = 0;
+                            app.update_selected_link();
                         }
                         KeyCode::Char('G') | KeyCode::End => {
                             app.page_scroll = app.page_content.len().saturating_sub(10);
+                            app.cursor_line = app.page_scroll;
+                            app.cursor_col = 0;
+                            app.update_selected_link();
                         }
-                        // Link navigation
-                        KeyCode::Char('w') | KeyCode::Tab => {
-                            app.next_link();
-                        }
-                        KeyCode::Char('b') | KeyCode::BackTab => {
-                            app.prev_link();
-                        }
+                        // Follow link
                         KeyCode::Enter => {
-                            // Follow selected link
-                            if let Some(url) = app.follow_link() {
-                                let title = app.page_links.get(app.selected_link.unwrap_or(0))
-                                    .map(|l| l.text.clone())
-                                    .unwrap_or_default();
+                            if let Some((url, title)) = app.get_link_at_cursor() {
                                 add_to_history(&app.query, &title, &url);
                                 app.load_page(&url, &title);
                             }
