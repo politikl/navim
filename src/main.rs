@@ -187,6 +187,16 @@ struct SearchResult {
     description: String,
 }
 
+// Link found in a rendered page
+#[derive(Clone)]
+struct PageLink {
+    line: usize,      // Line number where link appears
+    col_start: usize, // Column where link text starts
+    col_end: usize,   // Column where link text ends
+    text: String,     // Link text
+    url: String,      // Link URL
+}
+
 #[derive(PartialEq, Clone)]
 enum View {
     Home,
@@ -205,6 +215,9 @@ struct App {
     page_scroll: usize,
     page_title: String,
     page_url: String,
+    // Link navigation
+    page_links: Vec<PageLink>,
+    selected_link: Option<usize>,
     // Home screen
     search_input: String,
     cursor_position: usize,
@@ -226,6 +239,8 @@ impl App {
             page_scroll: 0,
             page_title: String::new(),
             page_url: String::new(),
+            page_links: Vec::new(),
+            selected_link: None,
             search_input: String::new(),
             cursor_position: 0,
         }
@@ -242,6 +257,8 @@ impl App {
             page_scroll: 0,
             page_title: String::new(),
             page_url: String::new(),
+            page_links: Vec::new(),
+            selected_link: None,
             search_input: String::new(),
             cursor_position: 0,
         }
@@ -321,24 +338,11 @@ impl App {
         if let Some(i) = self.list_state.selected() {
             if let Some(result) = self.results.get(i) {
                 if !result.url.is_empty() {
-                    self.page_title = result.title.clone();
-                    self.page_url = result.url.clone();
-                    self.page_scroll = 0;
-
+                    let url = result.url.clone();
+                    let title = result.title.clone();
                     // Save to history
-                    add_to_history(&self.query, &result.title, &result.url);
-
-                    // Fetch and render the page
-                    match fetch_page(&result.url) {
-                        Ok(content) => {
-                            self.page_content = content.lines().map(|s| s.to_string()).collect();
-                            self.view = View::WebPage;
-                        }
-                        Err(_) => {
-                            self.page_content = vec!["Failed to load page.".to_string()];
-                            self.view = View::WebPage;
-                        }
-                    }
+                    add_to_history(&self.query, &title, &url);
+                    self.load_page(&url, &title);
                 }
             }
         }
@@ -348,6 +352,97 @@ impl App {
         self.view = View::SearchResults;
         self.page_content.clear();
         self.page_scroll = 0;
+        self.page_links.clear();
+        self.selected_link = None;
+    }
+
+    fn next_link(&mut self) {
+        if self.page_links.is_empty() {
+            return;
+        }
+        match self.selected_link {
+            Some(i) => {
+                if i < self.page_links.len() - 1 {
+                    self.selected_link = Some(i + 1);
+                } else {
+                    self.selected_link = Some(0); // Wrap to first
+                }
+            }
+            None => {
+                // Find first link at or after current scroll position
+                let first_visible = self.page_links.iter().position(|l| l.line >= self.page_scroll);
+                self.selected_link = first_visible.or(Some(0));
+            }
+        }
+        // Scroll to make selected link visible
+        if let Some(idx) = self.selected_link {
+            if let Some(link) = self.page_links.get(idx) {
+                if link.line < self.page_scroll {
+                    self.page_scroll = link.line;
+                } else if link.line >= self.page_scroll + 20 {
+                    self.page_scroll = link.line.saturating_sub(5);
+                }
+            }
+        }
+    }
+
+    fn prev_link(&mut self) {
+        if self.page_links.is_empty() {
+            return;
+        }
+        match self.selected_link {
+            Some(i) => {
+                if i > 0 {
+                    self.selected_link = Some(i - 1);
+                } else {
+                    self.selected_link = Some(self.page_links.len() - 1); // Wrap to last
+                }
+            }
+            None => {
+                // Find last link before current scroll position
+                let last_before = self.page_links.iter().rposition(|l| l.line <= self.page_scroll + 20);
+                self.selected_link = last_before.or(Some(self.page_links.len() - 1));
+            }
+        }
+        // Scroll to make selected link visible
+        if let Some(idx) = self.selected_link {
+            if let Some(link) = self.page_links.get(idx) {
+                if link.line < self.page_scroll {
+                    self.page_scroll = link.line;
+                } else if link.line >= self.page_scroll + 20 {
+                    self.page_scroll = link.line.saturating_sub(5);
+                }
+            }
+        }
+    }
+
+    fn follow_link(&mut self) -> Option<String> {
+        if let Some(idx) = self.selected_link {
+            if let Some(link) = self.page_links.get(idx) {
+                return Some(link.url.clone());
+            }
+        }
+        None
+    }
+
+    fn load_page(&mut self, url: &str, title: &str) {
+        self.page_title = title.to_string();
+        self.page_url = url.to_string();
+        self.page_scroll = 0;
+        self.selected_link = None;
+
+        match fetch_page(url) {
+            Ok((content, links)) => {
+                self.page_content = content.lines().map(|s| s.to_string()).collect();
+                self.page_links = links;
+                self.view = View::WebPage;
+            }
+            Err(_) => {
+                self.page_content = vec!["Failed to load page.".to_string()];
+                self.page_links.clear();
+                self.view = View::WebPage;
+            }
+        }
     }
 }
 
@@ -397,6 +492,8 @@ struct HtmlRenderer {
     list_depth: usize,
     in_pre: bool,
     last_was_block: bool,
+    links: Vec<PageLink>,
+    current_line: usize,
 }
 
 impl HtmlRenderer {
@@ -409,7 +506,22 @@ impl HtmlRenderer {
             list_depth: 0,
             in_pre: false,
             last_was_block: true,
+            links: Vec::new(),
+            current_line: 0,
         }
+    }
+
+    fn current_col(&self) -> usize {
+        // Find position after last newline
+        if let Some(last_newline) = self.output.rfind('\n') {
+            self.output.len() - last_newline - 1
+        } else {
+            self.output.len()
+        }
+    }
+
+    fn update_line_count(&mut self) {
+        self.current_line = self.output.matches('\n').count();
     }
 
     fn render_element(&mut self, element: scraper::ElementRef) {
@@ -541,15 +653,55 @@ impl HtmlRenderer {
                 self.output.push('_');
             }
 
-            // Links
+            // Links - track for navigation
             "a" => {
-                self.render_children(element);
                 if let Some(href) = element.value().attr("href") {
-                    if href.starts_with("http") && !href.contains("javascript:") {
-                        self.output.push_str(" [→ ");
-                        self.output.push_str(&truncate_string(href, 40));
-                        self.output.push(']');
+                    // Resolve the URL
+                    let resolved = if href.starts_with("http") {
+                        Some(href.to_string())
+                    } else if href.starts_with("//") {
+                        Some(format!("https:{}", href))
+                    } else if href.starts_with('/') || href.starts_with('.') || !href.contains(':') {
+                        resolve_url(href, &self.base_url)
+                    } else {
+                        None
+                    };
+
+                    if let Some(url) = resolved {
+                        if !url.contains("javascript:") {
+                            self.update_line_count();
+                            let line = self.current_line;
+                            let col_start = self.current_col();
+
+                            // Render link text with markers
+                            self.output.push_str("[");
+                            self.render_children(element);
+                            self.output.push_str("]");
+
+                            let col_end = self.current_col();
+
+                            // Get link text
+                            let text: String = element.text().collect::<Vec<_>>().join(" ");
+                            let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+                            // Store the link
+                            if !text.is_empty() && text.len() < 200 {
+                                self.links.push(PageLink {
+                                    line,
+                                    col_start,
+                                    col_end,
+                                    text: truncate_string(&text, 50),
+                                    url,
+                                });
+                            }
+                        } else {
+                            self.render_children(element);
+                        }
+                    } else {
+                        self.render_children(element);
                     }
+                } else {
+                    self.render_children(element);
                 }
             }
 
@@ -687,13 +839,13 @@ impl HtmlRenderer {
         }
     }
 
-    fn finish(self) -> String {
-        self.output
+    fn finish(self) -> (String, Vec<PageLink>) {
+        (self.output, self.links)
     }
 }
 
 // Extract and render content with proper structure
-fn extract_content_with_images(html: &str, base_url: &str) -> String {
+fn extract_content_with_images(html: &str, base_url: &str) -> (String, Vec<PageLink>) {
     let document = Html::parse_document(html);
 
     // Find the main content element
@@ -756,7 +908,7 @@ fn extract_content_with_images(html: &str, base_url: &str) -> String {
     renderer.finish()
 }
 
-fn fetch_page(url: &str) -> Result<String, Box<dyn Error>> {
+fn fetch_page(url: &str) -> Result<(String, Vec<PageLink>), Box<dyn Error>> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .timeout(Duration::from_secs(15))
@@ -770,10 +922,10 @@ fn fetch_page(url: &str) -> Result<String, Box<dyn Error>> {
 
     let html = response.text()?;
 
-    // Extract content with images placed inline
-    let text = extract_content_with_images(&html, url);
+    // Extract content with images and links
+    let (text, links) = extract_content_with_images(&html, url);
 
-    Ok(sanitize_display(&text))
+    Ok((sanitize_display(&text), links))
 }
 
 fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn Error>> {
@@ -930,7 +1082,13 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    // Header with page info
+    // Header with page info and link count
+    let link_info = if !app.page_links.is_empty() {
+        format!(" [{} links]", app.page_links.len())
+    } else {
+        String::new()
+    };
+
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             " READING ",
@@ -944,18 +1102,38 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
             truncate_string(&app.page_title, 50),
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ),
+        Span::styled(
+            link_info,
+            Style::default().fg(Color::Cyan),
+        ),
     ]))
     .block(Block::default().borders(Borders::ALL).title(truncate_string(&app.page_url, 60)));
     f.render_widget(header, chunks[0]);
 
-    // Page content
+    // Page content with link highlighting
     let visible_height = chunks[1].height.saturating_sub(2) as usize;
+
+    // Find which link is selected and on which line
+    let selected_link_line = app.selected_link.and_then(|idx| app.page_links.get(idx).map(|l| l.line));
+
     let content_lines: Vec<Line> = app
         .page_content
         .iter()
+        .enumerate()
         .skip(app.page_scroll)
         .take(visible_height)
-        .map(|line| Line::from(Span::raw(line.as_str())))
+        .map(|(line_num, line_text)| {
+            // Check if this line has the selected link
+            if Some(line_num) == selected_link_line {
+                // Highlight the entire line containing the selected link
+                Line::from(Span::styled(
+                    line_text.as_str(),
+                    Style::default().bg(Color::Blue).fg(Color::White),
+                ))
+            } else {
+                Line::from(Span::raw(line_text.as_str()))
+            }
+        })
         .collect();
 
     let scroll_info = format!(
@@ -969,8 +1147,18 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
         .wrap(Wrap { trim: false });
     f.render_widget(page, chunks[1]);
 
-    // Footer with intuitive keys
-    let footer = Paragraph::new(" ↑/↓ or j/k: Scroll  Space/b: Page Down/Up  g/G: Top/Bottom  Esc/q: Back ")
+    // Footer - show selected link URL or navigation help
+    let footer_text = if let Some(idx) = app.selected_link {
+        if let Some(link) = app.page_links.get(idx) {
+            format!(" Link {}/{}: {} ", idx + 1, app.page_links.len(), truncate_string(&link.url, 50))
+        } else {
+            " w/b: Next/Prev link  Enter: Follow  j/k: Scroll  q: Back ".to_string()
+        }
+    } else {
+        " w/b: Next/Prev link  j/k: Scroll  Space: Page Down  q: Back ".to_string()
+    };
+
+    let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::Gray))
         .block(Block::default().borders(Borders::ALL).title("Keys"));
     f.render_widget(footer, chunks[2]);
@@ -1165,7 +1353,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
                         }
                         _ => {}
                     },
-                    // Web Page - scrolling works immediately
+                    // Web Page - scrolling and link navigation
                     View::WebPage => match code {
                         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => {
                             app.back_to_results();
@@ -1179,7 +1367,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
                         KeyCode::Char(' ') | KeyCode::Char('d') | KeyCode::PageDown => {
                             app.scroll_down(20);
                         }
-                        KeyCode::Char('b') | KeyCode::Char('u') | KeyCode::PageUp => {
+                        KeyCode::Char('u') | KeyCode::PageUp => {
                             app.scroll_up(20);
                         }
                         KeyCode::Char('g') | KeyCode::Home => {
@@ -1187,6 +1375,23 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
                         }
                         KeyCode::Char('G') | KeyCode::End => {
                             app.page_scroll = app.page_content.len().saturating_sub(10);
+                        }
+                        // Link navigation
+                        KeyCode::Char('w') | KeyCode::Tab => {
+                            app.next_link();
+                        }
+                        KeyCode::Char('b') | KeyCode::BackTab => {
+                            app.prev_link();
+                        }
+                        KeyCode::Enter => {
+                            // Follow selected link
+                            if let Some(url) = app.follow_link() {
+                                let title = app.page_links.get(app.selected_link.unwrap_or(0))
+                                    .map(|l| l.text.clone())
+                                    .unwrap_or_default();
+                                add_to_history(&app.query, &title, &url);
+                                app.load_page(&url, &title);
+                            }
                         }
                         _ => {}
                     },
