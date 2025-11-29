@@ -269,6 +269,7 @@ struct SearchResult {
 
 #[derive(PartialEq, Clone)]
 enum View {
+    Home,
     SearchResults,
     WebPage,
 }
@@ -284,6 +285,9 @@ struct App {
     page_scroll: usize,
     page_title: String,
     page_url: String,
+    // Home screen
+    search_input: String,
+    cursor_position: usize,
 }
 
 impl App {
@@ -302,6 +306,48 @@ impl App {
             page_scroll: 0,
             page_title: String::new(),
             page_url: String::new(),
+            search_input: String::new(),
+            cursor_position: 0,
+        }
+    }
+
+    fn new_home() -> Self {
+        App {
+            results: Vec::new(),
+            list_state: ListState::default(),
+            view: View::Home,
+            query: String::new(),
+            should_quit: false,
+            page_content: Vec::new(),
+            page_scroll: 0,
+            page_title: String::new(),
+            page_url: String::new(),
+            search_input: String::new(),
+            cursor_position: 0,
+        }
+    }
+
+    fn insert_char(&mut self, c: char) {
+        self.search_input.insert(self.cursor_position, c);
+        self.cursor_position += 1;
+    }
+
+    fn delete_char(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+            self.search_input.remove(self.cursor_position);
+        }
+    }
+
+    fn move_cursor_left(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+        }
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.cursor_position < self.search_input.len() {
+            self.cursor_position += 1;
         }
     }
 
@@ -680,10 +726,125 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     f.render_widget(footer, chunks[2]);
 }
 
-fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+fn draw_home(f: &mut ratatui::Frame, app: &mut App) {
+    use ratatui::layout::Alignment;
+
+    let area = f.area();
+
+    // Calculate vertical centering
+    let logo_height = 8;
+    let search_box_height = 3;
+    let tips_height = 5;
+    let total_content_height = logo_height + search_box_height + tips_height + 4; // +4 for spacing
+    let vertical_padding = area.height.saturating_sub(total_content_height) / 2;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(vertical_padding),
+            Constraint::Length(logo_height),
+            Constraint::Length(2),
+            Constraint::Length(search_box_height),
+            Constraint::Length(2),
+            Constraint::Length(tips_height),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    // ASCII Art Logo - centered
+    let ascii_logo = vec![
+        Line::from(Span::styled(
+            "                    _            ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "  _ __   __ ___   _(_)_ __ ___   ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            " | '_ \\ / _` \\ \\ / / | '_ ` _ \\  ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            " | | | | (_| |\\ V /| | | | | | | ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            " |_| |_|\\__,_| \\_/ |_|_| |_| |_| ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Terminal Web Browser",
+            Style::default().fg(Color::Gray),
+        )),
+    ];
+
+    let logo = Paragraph::new(ascii_logo).alignment(Alignment::Center);
+    f.render_widget(logo, chunks[1]);
+
+    // Search box - centered with fixed width
+    let search_width = 60.min(area.width.saturating_sub(4));
+    let search_padding = (area.width.saturating_sub(search_width)) / 2;
+
+    let search_area = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(search_padding),
+            Constraint::Length(search_width),
+            Constraint::Min(0),
+        ])
+        .split(chunks[3]);
+
+    // Build search input with cursor
+    let input_text = if app.search_input.is_empty() {
+        Span::styled("Search the web...", Style::default().fg(Color::DarkGray))
+    } else {
+        Span::styled(&app.search_input, Style::default().fg(Color::White))
+    };
+
+    let search_box = Paragraph::new(Line::from(input_text))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(Span::styled(
+                    " Search ",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )),
+        );
+    f.render_widget(search_box, search_area[1]);
+
+    // Set cursor position
+    let cursor_x = search_area[1].x + 1 + app.cursor_position as u16;
+    let cursor_y = search_area[1].y + 1;
+    f.set_cursor_position((cursor_x, cursor_y));
+
+    // Tips/help text - centered
+    let tips = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::styled(" to search  ", Style::default().fg(Color::Gray)),
+            Span::styled("Esc/q", Style::default().fg(Color::Yellow)),
+            Span::styled(" to quit", Style::default().fg(Color::Gray)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Privacy-focused browsing powered by Brave Search",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let tips_widget = Paragraph::new(tips).alignment(Alignment::Center);
+    f.render_widget(tips_widget, chunks[5]);
+}
+
+fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<Result<(), Box<dyn Error>>> {
     loop {
         terminal.draw(|f| {
             match app.view {
+                View::Home => draw_home(f, &mut app),
                 View::SearchResults => draw_search_results(f, &mut app),
                 View::WebPage => draw_web_page(f, &mut app),
             }
@@ -692,10 +853,56 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(KeyEvent { code, .. }) = event::read()? {
                 match &app.view {
+                    // Home screen - text input mode
+                    View::Home => match code {
+                        KeyCode::Esc => {
+                            app.should_quit = true;
+                        }
+                        KeyCode::Char('q') if app.search_input.is_empty() => {
+                            app.should_quit = true;
+                        }
+                        KeyCode::Enter => {
+                            if !app.search_input.is_empty() {
+                                // Perform search
+                                let query = app.search_input.clone();
+                                match search(&query) {
+                                    Ok(results) => {
+                                        if results.is_empty() {
+                                            // Stay on home, could show "no results" message
+                                        } else {
+                                            app.results = results;
+                                            app.query = query;
+                                            app.list_state = ListState::default();
+                                            app.list_state.select(Some(0));
+                                            app.view = View::SearchResults;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return Ok(Err(e));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            app.insert_char(c);
+                        }
+                        KeyCode::Backspace => {
+                            app.delete_char();
+                        }
+                        KeyCode::Left => {
+                            app.move_cursor_left();
+                        }
+                        KeyCode::Right => {
+                            app.move_cursor_right();
+                        }
+                        _ => {}
+                    },
                     // Search Results - navigation works immediately
                     View::SearchResults => match code {
                         KeyCode::Char('q') | KeyCode::Esc => {
-                            app.should_quit = true;
+                            // Go back to home instead of quitting
+                            app.view = View::Home;
+                            app.results.clear();
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             app.next();
@@ -738,7 +945,7 @@ fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: Ap
         }
 
         if app.should_quit {
-            return Ok(());
+            return Ok(Ok(()));
         }
     }
 }
@@ -1011,12 +1218,26 @@ fn show_history() -> Result<(), Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
+    // No arguments - show home screen
     if args.len() < 2 {
-        eprintln!("Usage: navim <query>");
-        eprintln!("       navim about  - Show about information");
-        eprintln!("       navim -h     - Show browsing history");
-        eprintln!("Example: navim rust programming");
-        std::process::exit(1);
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
+
+        let app = App::new_home();
+        let res = run_app(&mut terminal, app);
+
+        disable_raw_mode()?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        terminal.show_cursor()?;
+
+        match res {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(e)) => return Err(e),
+            Err(e) => return Err(Box::new(e)),
+        }
     }
 
     let query = args[1..].join(" ");
@@ -1056,9 +1277,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    if let Err(err) = res {
-        eprintln!("Error: {}", err);
+    match res {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(Box::new(e)),
     }
-
-    Ok(())
 }
