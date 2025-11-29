@@ -1267,9 +1267,9 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
         app.page_links.get(idx).map(|l| (l.line, l.col_start, l.col_end))
     });
 
-    // Gray background style
-    let bg_style = Style::default().bg(Color::Rgb(40, 40, 40));
-    let line_num_style = Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30));
+    // High contrast styles for dark terminals
+    let bg_style = Style::default().fg(Color::White);
+    let line_num_style = Style::default().fg(Color::Green);
 
     // Build content with proper highlighting
     let content_lines: Vec<Line> = app
@@ -1343,10 +1343,10 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
                                     Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD),
                                 ));
                             } else {
-                                // Regular link - blue text on gray
+                                // Regular link - cyan text, underlined
                                 spans.push(Span::styled(
                                     ch,
-                                    Style::default().fg(Color::Blue).bg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::UNDERLINED),
+                                    Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED),
                                 ));
                             }
                         }
@@ -1385,8 +1385,8 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     let page = Paragraph::new(content_lines)
         .block(Block::default()
             .borders(Borders::ALL)
-            .title(scroll_info)
-            .style(Style::default().bg(Color::Rgb(40, 40, 40))))
+            .border_style(Style::default().fg(Color::Green))
+            .title(scroll_info))
         .wrap(Wrap { trim: false });
     f.render_widget(page, chunks[1]);
 
