@@ -127,86 +127,6 @@ fn fetch_image_as_ascii(image_url: &str, max_width: u32) -> Option<String> {
     image_to_ascii(&bytes, max_width)
 }
 
-// Extract image URLs from HTML (focused on main content area)
-fn extract_image_urls(html: &str, base_url: &str) -> Vec<String> {
-    let document = Html::parse_document(html);
-    let base = Url::parse(base_url).ok();
-
-    let mut urls = Vec::new();
-
-    // Try to find images within main content areas first
-    let content_selectors = [
-        "article img",
-        "main img",
-        "#content img",
-        "#mw-content-text img",  // Wikipedia
-        ".post-content img",
-        ".entry-content img",
-        ".article-body img",
-        "img",  // Fallback to all images
-    ];
-
-    let mut found_images = Vec::new();
-    for sel_str in &content_selectors {
-        if let Ok(selector) = Selector::parse(sel_str) {
-            for img in document.select(&selector).take(15) {
-                found_images.push(img);
-            }
-            if found_images.len() >= 5 {
-                break;  // Found enough images in content area
-            }
-        }
-    }
-
-    // Process found images
-    for img in found_images.iter().take(20) {
-        // Try src first, then data-src (lazy loading)
-        let src = img.value().attr("src")
-            .or_else(|| img.value().attr("data-src"))
-            .or_else(|| img.value().attr("data-lazy-src"));
-
-        if let Some(src) = src {
-            let src_lower = src.to_lowercase();
-
-            // Skip data URLs and common non-content images
-            if src_lower.starts_with("data:")
-                || src_lower.contains("icon")
-                || src_lower.contains("avatar")
-                || src_lower.contains("sprite")
-                || src_lower.contains("tracking")
-                || src_lower.contains("pixel")
-                || src_lower.contains("1x1")
-                || src_lower.contains("badge")
-                || src_lower.contains("button")
-                || src_lower.contains("arrow")
-                || src_lower.contains("spacer")
-                || src_lower.ends_with(".svg")
-                || src_lower.ends_with(".gif")
-                || src_lower.contains("/static/")
-                || src_lower.contains("widget") {
-                continue;
-            }
-
-            // Resolve relative URLs
-            let full_url = if src.starts_with("http") {
-                src.to_string()
-            } else if src.starts_with("//") {
-                format!("https:{}", src)
-            } else if let Some(ref base) = base {
-                base.join(src).map(|u| u.to_string()).unwrap_or_default()
-            } else {
-                continue;
-            };
-
-            if !full_url.is_empty() && !urls.contains(&full_url) {
-                urls.push(full_url);
-            }
-        }
-    }
-
-    urls
-}
-
 // History functionality
 #[derive(Serialize, Deserialize, Clone)]
 struct HistoryEntry {
@@ -431,41 +351,70 @@ impl App {
     }
 }
 
-fn extract_main_content(html_text: &str) -> String {
-    let document = Html::parse_document(html_text);
+// Check if an image URL should be rendered
+fn should_render_image(src: &str) -> bool {
+    let src_lower = src.to_lowercase();
 
-    // Site-specific selectors in priority order - targets main content, skips nav/sidebars
-    let selectors = vec![
-        // Wikipedia - the actual article content
+    // Skip data URLs and common non-content images
+    !(src_lower.starts_with("data:")
+        || src_lower.contains("icon")
+        || src_lower.contains("avatar")
+        || src_lower.contains("sprite")
+        || src_lower.contains("tracking")
+        || src_lower.contains("pixel")
+        || src_lower.contains("1x1")
+        || src_lower.contains("badge")
+        || src_lower.contains("button")
+        || src_lower.contains("arrow")
+        || src_lower.contains("spacer")
+        || src_lower.ends_with(".svg")
+        || src_lower.ends_with(".gif")
+        || src_lower.contains("/static/")
+        || src_lower.contains("widget")
+        || src_lower.contains("logo")
+        || src_lower.contains("spinner")
+        || src_lower.contains("loading"))
+}
+
+// Resolve a potentially relative URL to absolute
+fn resolve_url(src: &str, base: &Option<Url>) -> Option<String> {
+    if src.starts_with("http") {
+        Some(src.to_string())
+    } else if src.starts_with("//") {
+        Some(format!("https:{}", src))
+    } else if let Some(ref base) = base {
+        base.join(src).map(|u| u.to_string()).ok()
+    } else {
+        None
+    }
+}
+
+// Extract content with inline images
+fn extract_content_with_images(html: &str, base_url: &str) -> String {
+    let document = Html::parse_document(html);
+    let base = Url::parse(base_url).ok();
+
+    // Find the main content element
+    let content_selectors = vec![
         "#mw-content-text .mw-parser-output",
         "#mw-content-text",
         "#bodyContent",
-
-        // StackOverflow
         ".question .s-prose",
         ".answercell .s-prose",
         "#mainbar",
-
-        // Generic article selectors
         "article .post-content",
         "article .entry-content",
         "article .content",
         "article",
-
-        // Main content areas
         "main .content",
         "main article",
         "#main-content",
         ".main-content",
         "[role='main']",
         "main",
-
-        // Blog/news sites
         ".post-body",
         ".article-body",
         ".story-body",
-
-        // Documentation sites
         ".markdown-body",
         ".documentation",
         ".doc-content",
@@ -473,20 +422,97 @@ fn extract_main_content(html_text: &str) -> String {
         "#content",
     ];
 
-    for sel_str in &selectors {
+    let mut content_html = String::new();
+
+    for sel_str in &content_selectors {
         if let Ok(selector) = Selector::parse(sel_str) {
             if let Some(element) = document.select(&selector).next() {
-                let inner_html = element.html();
-                // Skip if content is too short (probably wrong element)
-                if inner_html.len() > 500 {
-                    return html2text::from_read(inner_html.as_bytes(), 100);
+                let inner = element.html();
+                if inner.len() > 500 {
+                    content_html = inner;
+                    break;
                 }
             }
         }
     }
 
-    // Fallback: use full page
-    html2text::from_read(html_text.as_bytes(), 100)
+    if content_html.is_empty() {
+        content_html = html.to_string();
+    }
+
+    // Parse the content and find images with their positions
+    let content_doc = Html::parse_fragment(&content_html);
+    let img_selector = Selector::parse("img").unwrap();
+
+    // Collect image positions and URLs
+    let mut images_to_insert: Vec<(String, String)> = Vec::new(); // (placeholder, ascii_art)
+    let mut image_count = 0;
+
+    for img in content_doc.select(&img_selector) {
+        if image_count >= 3 {
+            break;
+        }
+
+        let src = img.value().attr("src")
+            .or_else(|| img.value().attr("data-src"))
+            .or_else(|| img.value().attr("data-lazy-src"));
+
+        if let Some(src) = src {
+            if !should_render_image(src) {
+                continue;
+            }
+
+            if let Some(full_url) = resolve_url(src, &base) {
+                if let Some(ascii_art) = fetch_image_as_ascii(&full_url, 60) {
+                    let alt = img.value().attr("alt").unwrap_or("image");
+                    let placeholder = format!("[IMG:{}]", alt);
+                    images_to_insert.push((placeholder.clone(), ascii_art));
+                    image_count += 1;
+                }
+            }
+        }
+    }
+
+    // Convert HTML to text
+    let mut text = html2text::from_read(content_html.as_bytes(), 100);
+
+    // Insert ASCII art where [IMG:alt] placeholders might logically go
+    // Since html2text doesn't preserve image markers, we'll insert images
+    // at paragraph breaks throughout the content
+    if !images_to_insert.is_empty() {
+        let paragraphs: Vec<&str> = text.split("\n\n").collect();
+        let total_paragraphs = paragraphs.len();
+
+        if total_paragraphs > 1 {
+            let mut result = String::new();
+            let insert_interval = total_paragraphs / (images_to_insert.len() + 1);
+            let mut img_idx = 0;
+
+            for (i, para) in paragraphs.iter().enumerate() {
+                result.push_str(para);
+                result.push_str("\n\n");
+
+                // Insert image after certain paragraphs
+                if img_idx < images_to_insert.len() {
+                    let insert_after = (img_idx + 1) * insert_interval;
+                    if i + 1 >= insert_after {
+                        result.push_str(&images_to_insert[img_idx].1);
+                        result.push_str("\n\n");
+                        img_idx += 1;
+                    }
+                }
+            }
+            text = result;
+        } else {
+            // Single paragraph or no clear structure - put images at the end
+            for (_, ascii_art) in images_to_insert {
+                text.push_str("\n\n");
+                text.push_str(&ascii_art);
+            }
+        }
+    }
+
+    text
 }
 
 fn fetch_page(url: &str) -> Result<String, Box<dyn Error>> {
@@ -503,25 +529,8 @@ fn fetch_page(url: &str) -> Result<String, Box<dyn Error>> {
 
     let html = response.text()?;
 
-    // Extract image URLs before converting to text
-    let image_urls = extract_image_urls(&html, url);
-
-    // Extract main content and convert to plain text
-    let mut text = extract_main_content(&html);
-
-    // Fetch and render images as ASCII art (limit to first 3 to keep it reasonable)
-    let mut ascii_images = String::new();
-    for img_url in image_urls.iter().take(3) {
-        if let Some(ascii_art) = fetch_image_as_ascii(img_url, 60) {
-            ascii_images.push_str(&ascii_art);
-            ascii_images.push('\n');
-        }
-    }
-
-    // Prepend images to content if any were found
-    if !ascii_images.is_empty() {
-        text = format!("{}\n{}", ascii_images, text);
-    }
+    // Extract content with images placed inline
+    let text = extract_content_with_images(&html, url);
 
     Ok(sanitize_display(&text))
 }
