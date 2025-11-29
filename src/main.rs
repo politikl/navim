@@ -1255,6 +1255,10 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     .block(Block::default().borders(Borders::ALL).title(truncate_string(&app.page_url, 60)));
     f.render_widget(header, chunks[0]);
 
+    // Calculate line number width
+    let total_lines = app.page_content.len();
+    let line_num_width = total_lines.to_string().len().max(3);
+
     // Page content with link highlighting
     let visible_height = chunks[1].height.saturating_sub(2) as usize;
 
@@ -1262,6 +1266,10 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     let selected_link_info = app.selected_link.and_then(|idx| {
         app.page_links.get(idx).map(|l| (l.line, l.col_start, l.col_end))
     });
+
+    // Gray background style
+    let bg_style = Style::default().bg(Color::Rgb(40, 40, 40));
+    let line_num_style = Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30));
 
     // Build content with proper highlighting
     let content_lines: Vec<Line> = app
@@ -1271,63 +1279,99 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
         .skip(app.page_scroll)
         .take(visible_height)
         .map(|(line_num, line_text)| {
+            // Line number
+            let line_num_str = format!("{:>width$} │ ", line_num + 1, width = line_num_width);
+
             // Get all links on this line
             let links_on_line: Vec<&PageLink> = app.page_links.iter()
                 .filter(|l| l.line == line_num)
                 .collect();
 
-            if links_on_line.is_empty() {
-                // No links on this line - render plain
-                Line::from(Span::raw(line_text.as_str()))
+            // Check if cursor is on this line
+            let cursor_on_line = app.cursor_line == line_num;
+
+            let mut spans: Vec<Span> = Vec::new();
+
+            // Add line number
+            spans.push(Span::styled(line_num_str, line_num_style));
+
+            let chars: Vec<char> = line_text.chars().collect();
+
+            if links_on_line.is_empty() && !cursor_on_line {
+                // No links and no cursor on this line - render with gray background
+                spans.push(Span::styled(line_text.as_str(), bg_style));
             } else {
-                // Build spans with link highlighting
-                let chars: Vec<char> = line_text.chars().collect();
-                let mut spans: Vec<Span> = Vec::new();
+                // Build spans with link highlighting and cursor
                 let mut pos = 0;
 
-                for link in &links_on_line {
-                    // Add text before this link
+                // Sort links by position
+                let mut sorted_links = links_on_line.clone();
+                sorted_links.sort_by_key(|l| l.col_start);
+
+                for link in &sorted_links {
+                    // Add text before this link (with possible cursor)
                     if pos < link.col_start && link.col_start <= chars.len() {
-                        let before: String = chars[pos..link.col_start].iter().collect();
-                        spans.push(Span::raw(before));
+                        for i in pos..link.col_start {
+                            let ch = chars.get(i).map(|c| c.to_string()).unwrap_or(" ".to_string());
+                            if cursor_on_line && i == app.cursor_col {
+                                // Cursor position - blue box
+                                spans.push(Span::styled(ch, Style::default().bg(Color::Blue).fg(Color::White)));
+                            } else {
+                                spans.push(Span::styled(ch, bg_style));
+                            }
+                        }
                     }
 
                     // Add the link text with highlighting
                     let link_end = link.col_end.min(chars.len());
                     let link_start = link.col_start.min(chars.len());
                     if link_start < link_end {
-                        let link_text: String = chars[link_start..link_end].iter().collect();
-
                         // Check if this is the selected link (cursor is on it)
                         let is_selected = selected_link_info.map_or(false, |(sel_line, sel_start, sel_end)| {
                             line_num == sel_line && link.col_start == sel_start && link.col_end == sel_end
                         });
 
-                        if is_selected {
-                            // Selected link - orange/yellow background
-                            spans.push(Span::styled(
-                                link_text,
-                                Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD),
-                            ));
-                        } else {
-                            // Regular link - blue
-                            spans.push(Span::styled(
-                                link_text,
-                                Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
-                            ));
+                        for i in link_start..link_end {
+                            let ch = chars.get(i).map(|c| c.to_string()).unwrap_or(" ".to_string());
+                            if cursor_on_line && i == app.cursor_col {
+                                // Cursor on link - blue cursor takes priority
+                                spans.push(Span::styled(ch, Style::default().bg(Color::Blue).fg(Color::White)));
+                            } else if is_selected {
+                                // Selected link - orange/yellow background
+                                spans.push(Span::styled(
+                                    ch,
+                                    Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD),
+                                ));
+                            } else {
+                                // Regular link - blue text on gray
+                                spans.push(Span::styled(
+                                    ch,
+                                    Style::default().fg(Color::Blue).bg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::UNDERLINED),
+                                ));
+                            }
                         }
                     }
                     pos = link_end;
                 }
 
-                // Add remaining text after last link
-                if pos < chars.len() {
-                    let after: String = chars[pos..].iter().collect();
-                    spans.push(Span::raw(after));
+                // Add remaining text after last link (with possible cursor)
+                for i in pos..chars.len() {
+                    let ch = chars[i].to_string();
+                    if cursor_on_line && i == app.cursor_col {
+                        // Cursor position - blue box
+                        spans.push(Span::styled(ch, Style::default().bg(Color::Blue).fg(Color::White)));
+                    } else {
+                        spans.push(Span::styled(ch, bg_style));
+                    }
                 }
 
-                Line::from(spans)
+                // If cursor is at end of line
+                if cursor_on_line && app.cursor_col >= chars.len() {
+                    spans.push(Span::styled(" ", Style::default().bg(Color::Blue).fg(Color::White)));
+                }
             }
+
+            Line::from(spans)
         })
         .collect();
 
@@ -1339,7 +1383,10 @@ fn draw_web_page(f: &mut ratatui::Frame, app: &mut App) {
     );
 
     let page = Paragraph::new(content_lines)
-        .block(Block::default().borders(Borders::ALL).title(scroll_info))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(scroll_info)
+            .style(Style::default().bg(Color::Rgb(40, 40, 40))))
         .wrap(Wrap { trim: false });
     f.render_widget(page, chunks[1]);
 
